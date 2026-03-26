@@ -1,0 +1,432 @@
+---
+title: "dodo"
+format: html
+editor: visual
+---
+
+## Dodo project
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(tidyr)
+library(dplyr)
+library(forcats)
+library(purrr)
+library(gglm)
+library(patchwork)
+library(tidyverse)
+library(FactoMineR)
+library(ggcorrplot)
+```
+
+Intro
+
+```{r}
+root_dir = "./DataPaper"
+users = list.files("./DataPaper")
+fn <- list.files(file.path(root_dir, users[1]))
+filenames <- c("user_info.csv", "sleep.csv", "saliva.csv", "RR.csv", "questionnaire.csv", "Activity.csv", "Actigraph.csv")
+```
+
+```{r}
+user_info <- data.frame()
+sleep <- data.frame()
+activity <- data.frame()
+questionnaire <- data.frame()
+saliva <- data.frame()
+RR <- data.frame()
+
+for (i in 1:22) {
+  temp_user          <- read.csv(file.path(root_dir, users[i], "user_info.csv"))
+  temp_sleep         <- read.csv(file.path(root_dir, users[i], "sleep.csv"))
+  temp_activity      <- read.csv(file.path(root_dir, users[i], "Activity.csv"))
+  temp_questionnaire <- read.csv(file.path(root_dir, users[i], "questionnaire.csv"))
+  if (users[i]!="user_21") {temp_saliva <- read.csv(file.path(root_dir, users[i], "saliva.csv"))}
+  temp_RR <- read.csv(file.path(root_dir, users[i], "RR.csv"))
+  
+  temp_user$Patient          <- rep(users[i], times = nrow(temp_user))
+  temp_sleep$Patient         <- rep(users[i], times = nrow(temp_sleep))
+  temp_activity$Patient      <- rep(users[i], times = nrow(temp_activity))
+  temp_questionnaire$Patient <- rep(users[i], times = nrow(temp_questionnaire))
+  temp_saliva$Patient        <- rep(users[i], times = nrow(temp_saliva))
+  temp_RR$Patient            <- rep(users[i], times = nrow(temp_RR))
+  
+  user_info      <- rbind(user_info, temp_user)
+  sleep          <- rbind(sleep, temp_sleep)
+  activity       <- rbind(activity, temp_activity)
+  questionnaire  <- rbind(questionnaire, temp_questionnaire)
+  saliva         <- rbind(saliva, temp_saliva)
+  RR             <- rbind(RR, temp_RR)
+}
+
+user_info      <- type.convert(user_info, as.is = TRUE)
+sleep          <- type.convert(sleep, as.is = TRUE)
+activity       <- type.convert(activity, as.is = TRUE)
+questionnaire  <- type.convert(questionnaire, as.is = TRUE)
+saliva         <- type.convert(saliva, as.is = TRUE)
+
+user_info <- user_info |>
+  select(-X) |>
+  mutate(Gender = as.factor(Gender))
+
+sleep <- sleep |>
+  select(-X) |>
+  mutate(In.Bed.Time = as.numeric(hm(In.Bed.Time)) / 3600) |>
+  mutate(Out.Bed.Time = as.numeric(hm(Out.Bed.Time)) / 3600 + 24) |>
+  mutate(Onset.Time = as.numeric(hm(Onset.Time)) / 3600) |>
+  mutate(In.Bed.Time = ifelse(In.Bed.Time < 6, In.Bed.Time + 24, In.Bed.Time)) |>
+  mutate(Onset.Time = ifelse(Onset.Time < 6, Onset.Time + 24, Onset.Time))
+  #mutate(In.Bed.Time = strptime(In.Bed.Time, format = "%H:%M", "GMT"))
+  #select(In.Bed.Date, In.Bed.Time, )
+
+questionnaire <- questionnaire |>
+  select(-X)
+
+saliva <- saliva |>
+  select(-X) |>
+  mutate(SAMPLES = as.factor(SAMPLES))
+
+RR <- RR |>
+  #select(-X) |>
+  group_by(Patient) |>
+  mutate(RR_diff = ibi_s - lag(ibi_s)) |>
+  
+  # Étape 2 : Appliquer la formule du RMSSD
+  summarise(
+    Mean_RR = mean(ibi_s, na.rm = TRUE), # Fréquence cardiaque moyenne (inversée)
+    SDNN = sd(ibi_s, na.rm = TRUE),      # Écart-type global (autre mesure HRV)
+    RMSSD = sqrt(mean(RR_diff^2, na.rm = TRUE)), .groups = "drop" # Le fameux RMSSD
+  )
+
+str(user_info)
+```
+
+```{r}
+hist(user_info$Age, breaks=length(users))
+```
+
+```{r}
+user_info$BMI <- user_info$Weight / (user_info$Height*user_info$Height*0.01*0.01)
+hist(user_info$Weight, breaks=length(users))
+hist(user_info$Height, breaks=length(users))
+ggplot(user_info, aes(x = Height, y = Weight)) +
+  geom_point(aes(colour = BMI), size = 4) +
+  theme_minimal(base_size = 18)
+ggsave(
+  filename = "BMI_h_w.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+# pas d'age
+users[10]
+```
+
+```{r}
+sleep_long <- sleep %>%
+  pivot_longer(cols = c(In.Bed.Time, Out.Bed.Time), 
+               names_to = "moment", 
+               values_to = "heure")
+
+ggplot(sleep_long, aes(x = heure, fill = moment)) +
+  geom_density(alpha = 0.5, color = "white") + # alpha pour la transparence
+  scale_fill_manual(values = c("In.Bed.Time" = "#2c3e50", "Out.Bed.Time" = "#f1c40f"),
+                    labels = c("Heure de coucher", "Heure de lever")) +
+  scale_x_continuous(breaks = seq(18, 40, by = 2),
+                     labels = function(x) paste0(x %% 24, "h")) +
+  labs(title = "Cycles de sommeil des patients",
+       x = "Heure de la journée",
+       y = "Densité",
+       fill = "Légende") +
+  theme_minimal()
+ggsave(
+  filename = "Cycles_sommeil.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+ggplot(sleep, aes(Total.Sleep.Time..TST.)) +
+  geom_density(alpha = 0.5, fill = "blue", color = "white") +
+  scale_x_continuous(breaks = seq(0, 1000, by = 60),
+                     labels = function(x) paste0(x / 60, "h")) +
+  labs(title = "Durée de sommeil",
+       x = "Temps de sommeil",
+       y = "Densité",
+       fill = "Légende") +
+  theme_minimal()
+ggsave(
+  filename = "Duree_sommeil.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+dict_activity <- c(
+  "0" = "sleeping",
+  "1" = "laying down",
+  "2" = "sitting",
+  "3" = "light movement",
+  "4" = "medium movement",
+  "5" = "heavy movement",
+  "6" = "eating",
+  "7" = "small screen usage",
+  "8" = "large screen",
+  "9" = "coffee/coke",
+  "10" = "smoking",
+  "11" = "alcohol assumption",
+  "12" = "saliva samples"
+)
+
+activity <- activity |>
+  select(-X) |>
+  mutate(Start_hm = as_datetime(Start, format = "%H:%M")) |>
+  mutate(End_hm = as_datetime(End, format = "%H:%M")) |>
+  mutate(End = as.numeric(hm(End)) / 3600) |>
+  mutate(Start = as.numeric(hm(Start)) / 3600) |>
+  mutate(Duration = ifelse(End > Start, End-Start, End-Start+24))
+
+activity$Activity_Label <- factor(activity$Activity, 
+                                  levels = names(dict_activity), 
+                                  labels = dict_activity)
+
+activity_summary <- activity |>
+  group_by(Patient, Activity_Label) |> 
+  summarise(Total_Patient = sum(Duration, na.rm = TRUE), .groups = "drop") |>
+  group_by(Activity_Label) |>
+  summarise(
+    Mean_Duration = mean(Total_Patient, na.rm = TRUE),
+    SD_Duration = sd(Total_Patient, na.rm = TRUE),
+    N = n(),
+    SE_Duration = SD_Duration / sqrt(N)
+  )
+
+activity_patient <- activity |>
+  group_by(Patient, Activity_Label) |> 
+  summarise(Total_Patient = sum(Duration, na.rm = TRUE), .groups = "drop")
+
+ggplot(activity_summary, aes(
+    x = fct_reorder(Activity_Label, Mean_Duration, .desc = TRUE), 
+    y = Mean_Duration,
+    fill = Activity_Label
+  )) +
+  geom_col(alpha = 0.9) +
+  geom_errorbar(aes(
+    ymin = Mean_Duration - SE_Duration, 
+    ymax = Mean_Duration + SE_Duration
+  ), width = 0.2, color = "black", alpha = 0.7) +
+  labs(title = "Durée moyenne quotidienne avec erreur type",
+       subtitle = "Moyenne des sommes cumulées par patient +/- erreur type",
+       x = "Activité",
+       y = "Durée totale (heures)",
+       fill = "Légende") +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+plot <- hist(questionnaire$Pittsburgh, breaks = length(questionnaire$Pittsburgh))
+
+ggsave(
+  filename = "pittsburgh.png", # Nom du fichier
+  plot = plot,
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+cort_graph <- ggplot(saliva, aes(x = SAMPLES, y = Cortisol.NORM)) +
+  geom_point() +
+  labs(
+    title = "Cortisol",
+    x = "",
+    y = "µg Cortisol / 100 µg Protein"
+  ) +
+  theme_minimal()
+mela_graph <- ggplot(saliva, aes(x = SAMPLES, y = Melatonin.NORM)) +
+  geom_point() +
+  labs(
+    title = "Melatonin",
+    x = "",
+    y = "µg Melatonin / µg Protein"
+  ) +
+  theme_minimal()
+
+cort_graph + mela_graph
+
+ggsave(
+  filename = "cort_mela.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+Tracer la différence entre "before sleep" et "wake up" ?
+
+```{r}
+ggplot(RR, aes(x = Patient, y = RMSSD, fill = Patient)) +
+  geom_col(alpha = 0.8, width = 0.5) +
+  labs(
+    title = "Variabilité de la Fréquence Cardiaque (HRV) par patient",
+    subtitle = "Indicateur RMSSD (plus la valeur est haute meilleure est la récupération nerveuse)",
+    x = "Patient",
+    y = "RMSSD (secondes)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Piste de recherche :** `For example, it is possible to investigate the relationship between perceived (PSQI) and observed sleep quality (e.g., melatonin, cortisol, sleep fragmentation index and sleep length) by individual characteristics such as daily stress, anxiety status, emotion perceived throughout the previous day and daily activities.`
+
+**Piste ML :** `Moreover, machine learning algorithms could be developed to detect daily activities, moods, emotions, individual predisposition to react toward aversive or positive events and stress following cardiovascular responses (e.g., heart rate and heart rate variability) and/or actigraphy data. These algorithms could be used to predict people's routine by using accelerometers data and cardiovascular responses that are nowadays continuously recorded by wrist-worn devices that have become more and more popular thanks to the technological advent of the last two decades.`
+
+```{r}
+df <- merge(sleep, questionnaire, by="Patient")
+saliva <- saliva |>
+  filter(SAMPLES == "before sleep") |>
+  group_by(Patient) |>
+  mutate(Melatonin = Melatonin.NORM) |>
+  mutate(Cortisol = Cortisol.NORM)
+
+activity_patient <- activity_patient |> 
+  filter(Activity_Label == "small screen usage")
+
+df <- merge(df, activity_patient, by="Patient")
+df <- merge(df, saliva, by="Patient")
+df <- merge(df, RR, by="Patient") |>
+  select(-Patient, -Onset.Time, -Onset.Date)
+```
+
+```{r}
+ggplot(data = df, aes(x = Total_Patient, y = Daily_stress)) +
+  geom_point() +
+  theme_minimal()
+```
+
+Clustering Melatonin vs Pittsburgh
+
+```{r}
+#| echo: false
+fit_glm <- lm(
+  Pittsburgh ~ RMSSD + Daily_stress + Melatonin + Total_Patient,
+  data = df
+  )
+
+summary(fit_glm)
+```
+
+```{r}
+#| echo: false
+gglm(fit_glm)
+```
+
+```{r}
+df <- df |>
+  select(-SAMPLES)
+corr_matrix <- cor(df, method = "pearson", use = "complete.obs")
+p_mat <- cor_pmat(df)
+ggcorrplot(corr_matrix, 
+           method = "square", 
+           type = "lower",
+           lab = TRUE,
+           lab_size = 2,
+           tl.cex = 5,
+           tl.srt = 45,
+           p.mat = p_mat,
+           sig.level = 0.05,
+           insig = "blank",
+           colors = c("#E46726", "white", "#6D9EC1"),
+           title = "Corrélations: Sommeil, Hormones et Stress (MMASH)")
+```
+
+Détection d'activité avec rythme cardiaque et actigraphe :
+
+Graphe activité journée user_1
+
+```{r}
+activity_1 <- activity |>
+  filter(Patient == "user_2") |>
+  filter(Day == 2)
+
+graphe_activites <- ggplot(activity_1) +
+  geom_segment(aes(x = Start_hm, xend = End_hm, 
+                   y = Activity_Label, yend = Activity_Label, 
+                   color = Activity_Label), 
+               linewidth = 8) +
+    theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none", 
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  ) +
+  labs(
+    title = "Chronogramme des activités du Patient 1 (Jour 1)",
+    subtitle = "Dataset MMASH",
+    x = "Heure de la journée",
+    y = "Type d'activité"
+  ) +
+  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hours")
+
+print(graphe_activites)
+```
+
+```{r}
+# Chargement des bibliothèques
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(scales) # Pour le formatage de l'axe des temps
+
+# 1. Définir le chemin vers le fichier du patient 1
+# Modifiez ce chemin selon l'emplacement de vos données MMASH extraites
+chemin_fichier <- "chemin/vers/MMASH/DataPaper/user_1/Actigraph.csv"
+
+# Charger les données
+df_actigraph <- read_csv(chemin_fichier, show_col_types = FALSE)
+
+# 2. Préparation des données
+df_jour_1 <- df_actigraph %>%
+  # Garder uniquement les données du premier jour (day == 1 ou day == 0 selon le format exact)
+  filter(day == 1) %>% 
+  # S'assurer que la colonne 'time' est au bon format
+  # read_csv devrait la lire comme un objet 'hms' (heures:minutes:secondes)
+  arrange(time)
+
+# 3. Création du graphique (Actigramme)
+# On utilise généralement 'Vector Magnitude' ou 'Axis1' pour quantifier l'activité
+actigramme <- ggplot(df_jour_1, aes(x = time, y = `Vector Magnitude`)) +
+  # geom_col() (ou geom_bar) est souvent le plus lisible pour des "counts" d'actimétrie
+  geom_col(fill = "darkblue", width = 60) + 
+  
+  # Esthétique du graphique
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  ) +
+  
+  # Titres et labels
+  labs(
+    title = "Actigramme du Patient 1 (Jour 1)",
+    subtitle = "Dataset MMASH",
+    x = "Heure de la journée",
+    y = "Activité (Vector Magnitude)"
+  ) +
+  
+  # Formatage de l'axe X pour afficher les heures proprement
+  scale_x_time(labels = time_format("%H:%M"), breaks = breaks_width("2 hours"))
+
+# Afficher le graphique
+print(actigramme)
+```
+
+Random Forest Stress vs Rest with HRV

@@ -1,0 +1,266 @@
+---
+title: "dodo_clean"
+format: html
+editor: visual
+---
+
+## Projet Sommeil
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(tidyr)
+library(dplyr)
+library(forcats)
+library(purrr)
+library(gglm)
+library(patchwork)
+library(tidyverse)
+library(FactoMineR)
+library(ggcorrplot)
+library(factoextra)
+library(randomForest)
+```
+
+Importations des données
+
+```{r}
+root_dir = "./DataPaper"
+users = list.files("./DataPaper")
+fn <- list.files(file.path(root_dir, users[1]))
+filenames <- c("user_info.csv", "sleep.csv", "saliva.csv", "RR.csv", "questionnaire.csv", "Activity.csv", "Actigraph.csv")
+```
+
+```{r}
+user_info <- data.frame()
+sleep <- data.frame()
+activity <- data.frame()
+questionnaire <- data.frame()
+saliva <- data.frame()
+RR <- data.frame()
+actigraph <- data.frame()
+
+for (i in 1:22) {
+  temp_user          <- read.csv(file.path(root_dir, users[i], "user_info.csv"))
+  temp_sleep         <- read.csv(file.path(root_dir, users[i], "sleep.csv"))
+  temp_activity      <- read.csv(file.path(root_dir, users[i], "Activity.csv"))
+  temp_questionnaire <- read.csv(file.path(root_dir, users[i], "questionnaire.csv"))
+  if (users[i]!="user_21") {temp_saliva <- read.csv(file.path(root_dir, users[i], "saliva.csv"))}
+  temp_RR <- read.csv(file.path(root_dir, users[i], "RR.csv"))
+  temp_actigraph <- read.csv(file.path(root_dir, users[i], "Actigraph.csv"))
+  
+  temp_user$Patient          <- rep(users[i], times = nrow(temp_user))
+  temp_sleep$Patient         <- rep(users[i], times = nrow(temp_sleep))
+  temp_activity$Patient      <- rep(users[i], times = nrow(temp_activity))
+  temp_questionnaire$Patient <- rep(users[i], times = nrow(temp_questionnaire))
+  temp_saliva$Patient        <- rep(users[i], times = nrow(temp_saliva))
+  temp_RR$Patient            <- rep(users[i], times = nrow(temp_RR))
+  temp_actigraph$Patient     <- rep(users[i], times = nrow(temp_actigraph))
+  
+  user_info      <- rbind(user_info, temp_user)
+  sleep          <- rbind(sleep, temp_sleep)
+  activity       <- rbind(activity, temp_activity)
+  questionnaire  <- rbind(questionnaire, temp_questionnaire)
+  saliva         <- rbind(saliva, temp_saliva)
+  RR             <- rbind(RR, temp_RR)
+  actigraph      <- rbind(actigraph, temp_actigraph)
+}
+
+rm(temp_user)
+rm(temp_sleep)
+rm(temp_activity)
+rm(temp_questionnaire)
+rm(temp_saliva)
+rm(temp_RR)
+
+user_info      <- type.convert(user_info, as.is = TRUE)
+sleep          <- type.convert(sleep, as.is = TRUE)
+activity       <- type.convert(activity, as.is = TRUE)
+questionnaire  <- type.convert(questionnaire, as.is = TRUE)
+saliva         <- type.convert(saliva, as.is = TRUE)
+
+user_info <- user_info |>
+  select(-X) |>
+  mutate(Gender = as.factor(Gender))
+
+sleep <- sleep |>
+  select(-X) |>
+  mutate(In.Bed.Time = as.numeric(hm(In.Bed.Time)) / 3600) |>
+  mutate(Out.Bed.Time = as.numeric(hm(Out.Bed.Time)) / 3600 + 24) |>
+  mutate(Onset.Time = as.numeric(hm(Onset.Time)) / 3600) |>
+  mutate(In.Bed.Time = ifelse(In.Bed.Time < 6, In.Bed.Time + 24, In.Bed.Time)) |>
+  mutate(Onset.Time = ifelse(Onset.Time < 6, Onset.Time + 24, Onset.Time))
+  #mutate(In.Bed.Time = strptime(In.Bed.Time, format = "%H:%M", "GMT"))
+  #select(In.Bed.Date, In.Bed.Time, )
+
+questionnaire <- questionnaire |>
+  select(-X)
+
+saliva <- saliva |>
+  select(-X) |>
+  mutate(SAMPLES = as.factor(SAMPLES))
+
+RR <- RR |>
+  #select(-X) |>
+  group_by(Patient) |>
+  mutate(RR_diff = ibi_s - lag(ibi_s)) |>
+  
+  # Étape 2 : Appliquer la formule du RMSSD
+  summarise(
+    Mean_RR = mean(ibi_s, na.rm = TRUE), # Fréquence cardiaque moyenne (inversée)
+    SDNN = sd(ibi_s, na.rm = TRUE),      # Écart-type global (autre mesure HRV)
+    RMSSD = sqrt(mean(RR_diff^2, na.rm = TRUE)), .groups = "drop" # Le fameux RMSSD
+  )
+
+str(user_info)
+```
+
+Regroupement de tous les dataframe en un seul
+
+```{r}
+liste_df <- list(user_info, sleep, questionnaire, saliva, RR)
+df <- Reduce(function(x, y) merge(x, y, by = "Patient", all = FALSE), liste_df)
+df$Good_Sleep <- ifelse(df$Pittsburgh < 6, 1, 0)
+#df$Good_Sleep <- ifelse(df$Efficiency > 0.85, 1, 0)
+```
+
+Faire une Analyse en composante principale
+
+```{r}
+df_acp <- df |>
+  select(-Patient, -Gender, -SAMPLES, -Good_Sleep)
+
+res.acp <- PCA(df_acp, scale.unit = TRUE, graph = TRUE)
+#fviz_pca_ind(res.acp, 
+#             repel = TRUE,
+#             title = "ACP - Nuage des patients")
+#fviz_pca_var(res.acp, col.var = "contrib", # Colore selon la contribution
+#             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#             repel = TRUE)
+```
+
+Regression linéaire
+
+```{r}
+donnees_regression <- as.data.frame(res.acp$ind$coord)
+donnees_regression$Good_Sleep <- df$Good_Sleep
+modele_pcr <- glm(
+  Good_Sleep ~ Dim.1 + Dim.2 + Dim.3, 
+  family = binomial(),
+  data = donnees_regression
+  )
+summary(modele_pcr)
+```
+
+```{r}
+description_dim1 <- dimdesc(res.acp, axes = 1, proba = 0.02)
+description_dim1$Dim.1$quanti
+```
+
+L'ACP a mis en évidence une dimension principale (Dim.1) caractérisant un sommeil fragmenté et inefficace (forte latence, WASO élevé, faible efficacité). La régression logistique confirme que plus le profil d'un patient s'aligne avec cette dimension de sommeil perturbé, plus sa probabilité d'être classé en 'Bon Sommeil' s'effondre de manière très significative (p \< 0.01).
+
+```{r}
+# 1. Résumé de l'Actigraphie par patient
+actigraph_summary <- actigraph |>
+  group_by(Patient) |>
+  summarise(
+    Mean_Act = mean(Axis1, na.rm = TRUE), # Remplacez Axis1 par le nom exact de la colonne de mouvement
+    Max_Act = max(Axis1, na.rm = TRUE),
+    Zero_Act_Ratio = sum(Axis1 == 0, na.rm = TRUE) / n()
+  )
+
+# 2. Vous avez déjà votre résumé RR (votre dataframe 'RR' groupé)
+# RR_summary <- ...
+
+# 3. Récupérer la cible (Total Sleep Time)
+sleep_target <- sleep |>
+  select(Patient, Total.Sleep.Time..TST.)
+
+# 4. Fusionner le tout pour le Machine Learning
+df_ml <- list(RR, actigraph_summary, sleep_target) |>
+  Reduce(function(x, y) merge(x, y, by = "Patient", all = FALSE), x = _) |>
+  select(-Patient) # On retire l'ID pour ne garder que des variables prédictives
+```
+
+```{r}
+# On récupère le nombre total d'individus (lignes) dans le dataset
+n_patients <- nrow(df_ml)
+
+# On prépare un vecteur vide pour stocker les prédictions
+predictions_loo <- numeric(n_patients)
+
+# Début de la boucle Leave-One-Out
+set.seed(42) # Pour la reproductibilité des forêts aléatoires
+for (i in 1:n_patients) {
+  
+  # 1. Séparation
+  # df_test contient UNIQUEMENT le patient i (la ligne i)
+  df_test <- df_ml[i, , drop = FALSE] 
+  
+  # df_train contient TOUS les autres patients (sauf la ligne i)
+  df_train <- df_ml[-i, ] 
+  
+  # 2. Entraînement du modèle sur les (n-1) patients
+  modele_rf <- randomForest(
+    Total.Sleep.Time..TST. ~ ., 
+    data = df_train,
+    ntree = 500
+  )
+  
+  # 3. Prédiction sur le patient i (qui n'a pas été vu par le modèle)
+  predictions_loo[i] <- predict(modele_rf, newdata = df_test)
+}
+
+# --- ÉVALUATION ---
+
+# Calcul de l'Erreur Absolue Moyenne (MAE) sur l'ensemble du jeu de données
+mae_loo <- mean(abs(predictions_loo - df_ml$Total.Sleep.Time..TST.))
+print(paste("Erreur moyenne de prédiction (LOOCV) :", round(mae_loo, 2), "minutes"))
+```
+
+```{r}
+# On crée le dataframe avec toutes les données réelles et toutes les prédictions LOOCV
+df_resultats_loo <- data.frame(
+  Realite = df_ml$Total.Sleep.Time..TST.,
+  Predictions = predictions_loo
+)
+
+# On génère le graphique
+ggplot(df_resultats_loo, aes(x = Realite, y = Predictions)) +
+  geom_point(color = "#00AFBB", alpha = 0.8, size = 3) +
+  geom_abline(intercept = 0, slope = 1, color = "#FC4E07", linetype = "dashed", linewidth = 1) +
+  geom_smooth(method = "lm", color = "darkblue", se = FALSE, linewidth = 1) +
+  labs(
+    title = "Prédiction du Temps de Sommeil (Validation Leave-One-Out)",
+    subtitle = paste("Modèle Random Forest - MAE :", round(mae_loo, 2), "minutes"),
+    x = "Temps de sommeil Réel (Minutes)",
+    y = "Temps de sommeil Prédit (Minutes)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    axis.title = element_text(face = "bold")
+  )
+
+ggsave(
+  filename = "pred_temps-sommeil_loo.png",
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+# 1. On ajoute une colonne avec l'erreur absolue (en minutes)
+df_resultats_loo$Erreur_Absolue <- abs(df_resultats_loo$Realite - df_resultats_loo$Predictions)
+
+# 2. On recrée un identifiant (Numéro de ligne ou ID Patient si vous l'avez gardé en mémoire)
+df_resultats_loo$Patient_ID <- paste0("Patient_", 1:nrow(df_resultats_loo))
+
+# 3. On trie le dataframe pour avoir les plus grosses erreurs en premier
+pires_predictions <- df_resultats_loo |>
+  arrange(desc(Erreur_Absolue))
+
+# 4. Afficher le Top 5 des pires prédictions
+print("Top 5 des patients avec la plus grande erreur de prédiction :")
+head(pires_predictions, 5)
+```
