@@ -128,7 +128,17 @@ Faire une Analyse en composante principale
 
 ```{r}
 df_acp <- df |>
-  select(-Patient, -Gender, -SAMPLES, -Good_Sleep)
+  select(-Patient, -Gender, -SAMPLES, -Good_Sleep, 
+         -MEQ, -STAI1, -STAI2, -Pittsburgh, -Daily_stress, 
+         -BISBAS_bis, -BISBAS_reward, -BISBAS_drive, -BISBAS_fun
+         , -panas_pos_10, -panas_pos_14, -panas_pos_18, -panas_pos_22, -panas_pos_9.1, -panas_pos_10, -panas_neg_14, -panas_neg_18, -panas_neg_22, -panas_neg_9.1, -panas_neg_10,
+         -Total.Sleep.Time..TST., -Total.Minutes.in.Bed, 
+         -Out.Bed.Time, -In.Bed.Time, -Onset.Time, -Fragmentation.Index,
+    -Average.Awakening.Length, -Efficiency, -Number.of.Awakenings,
+    -Sleep.Fragmentation.Index, -Latency, -Wake.After.Sleep.Onset..WASO.
+         ) |>
+  mutate(IMC = Weight / (Height / 100)^2) |>
+  select(-Weight, -Height)
 
 res.acp <- PCA(df_acp, scale.unit = TRUE, graph = TRUE)
 #fviz_pca_ind(res.acp, 
@@ -153,8 +163,8 @@ summary(modele_pcr)
 ```
 
 ```{r}
-description_dim1 <- dimdesc(res.acp, axes = 1, proba = 0.02)
-description_dim1$Dim.1$quanti
+description_dim1 <- dimdesc(res.acp, axes = 3, proba = 0.02)
+description_dim1$Dim.3$quanti
 ```
 
 L'ACP a mis en évidence une dimension principale (Dim.1) caractérisant un sommeil fragmenté et inefficace (forte latence, WASO élevé, faible efficacité). La régression logistique confirme que plus le profil d'un patient s'aligne avec cette dimension de sommeil perturbé, plus sa probabilité d'être classé en 'Bon Sommeil' s'effondre de manière très significative (p \< 0.01).
@@ -230,11 +240,15 @@ ggplot(df_resultats_loo, aes(x = Realite, y = Predictions)) +
   geom_point(color = "#00AFBB", alpha = 0.8, size = 3) +
   geom_abline(intercept = 0, slope = 1, color = "#FC4E07", linetype = "dashed", linewidth = 1) +
   geom_smooth(method = "lm", color = "darkblue", se = FALSE, linewidth = 1) +
+  scale_x_continuous(breaks = seq(0, 1000, by = 60),
+                     labels = function(x) paste0(x / 60, "h")) +
+  scale_y_continuous(breaks = seq(0, 1000, by = 60),
+                     labels = function(x) paste0(x / 60, "h")) +
   labs(
     title = "Prédiction du Temps de Sommeil (Validation Leave-One-Out)",
-    subtitle = paste("Modèle Random Forest - MAE :", round(mae_loo, 2), "minutes"),
-    x = "Temps de sommeil Réel (Minutes)",
-    y = "Temps de sommeil Prédit (Minutes)"
+    subtitle = paste("Modèle Random Forest (erreur moyenne absolue :", round(mae_loo, 2), "minutes)"),
+    x = "Temps de sommeil réel",
+    y = "Temps de sommeil prédit"
   ) +
   theme_minimal() +
   theme(
@@ -263,4 +277,136 @@ pires_predictions <- df_resultats_loo |>
 # 4. Afficher le Top 5 des pires prédictions
 print("Top 5 des patients avec la plus grande erreur de prédiction :")
 head(pires_predictions, 5)
+```
+
+Clustering
+
+```{r}
+# 1. Préparation du Dataset de Profilage
+# On calcule d'abord le score moyen d'activité par patient depuis les données brutes
+activite_resume <- actigraph |>
+  group_by(Patient) |>
+  summarise(Score_Activite = sum(Inclinometer.Sitting, na.rm = TRUE), .groups = "drop")
+
+# On fusionne avec user_info et le questionnaire STAI1
+df_clustering <- user_info |>
+  select(Patient, Weight, Height) |>
+  left_join(questionnaire |> select(Patient, MEQ), by = "Patient") |>
+  left_join(activite_resume, by = "Patient") |>
+  mutate(IMC = Weight / (Height / 100)^2) |>
+  
+  select(Patient, IMC, Score_Activite, MEQ) |>
+  na.omit() 
+
+df_clustering_num <- df_clustering |>
+  tibble::column_to_rownames("Patient")
+
+df_scaled <- scale(df_clustering_num)
+
+# 3. Exécution du K-Means pour k = 2 groupes
+set.seed(123) # Pour que l'algorithme donne toujours le même résultat
+res.kmeans <- kmeans(df_scaled, centers = 2, nstart = 25)
+
+# 4. Interprétation : Quels sont ces deux groupes ?
+# On rajoute l'étiquette du groupe (1 ou 2) dans notre tableau d'origine
+df_clustering$Profil <- as.factor(res.kmeans$cluster)
+
+# On affiche les moyennes de chaque profil
+resume_profils <- df_clustering |>
+  group_by(Profil) |>
+  summarise(
+    Patients_Count = n(),
+    Moy_IMC = round(mean(IMC), 1),
+    Moy_Activite = round(mean(Score_Activite), 0),
+    Moy_Anxiete = round(mean(MEQ), 1)
+  )
+
+print("Caractéristiques moyennes des deux profils :")
+print(resume_profils)
+```
+
+```{r}
+# Graphique des profils
+fviz_cluster(
+  res.kmeans, 
+  data = df_scaled,
+  palette = c("#00AFBB", "#FC4E07", "#ECECEC"), # Couleurs des groupes
+  geom = "point",                    # Afficher les points
+  ellipse.type = "convex",           # Tracer un polygone autour du groupe
+  ggtheme = theme_minimal(),
+  main = "Clustering : 2 profils de vie distincts",
+  xlab = "Synthèse de l'Activité/IMC/Anxiété",
+  ylab = ""
+)
+
+ggsave(
+  filename = "clust_.png",
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+ggplot(df_clustering, aes(x = IMC, y = Score_Activite/mean(Score_Activite), color = Profil, fill = Profil)) +
+  
+  # A. Ajout des points (on grossit un peu pour la lisibilité)
+  geom_point(size = 4, alpha = 0.8) +
+  
+  # B. Ajout des ellipses de concentration (pour simuler l'effet fviz_cluster)
+  # stat_ellipse trace une ellipse de confiance (par défaut 95%) autour du groupe
+  stat_ellipse(geom = "polygon", alpha = 0.2, level = 0.80) +
+  
+  # C. Personnalisation des couleurs
+  scale_color_manual(values = c("#00AFBB", "#FC4E07")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07")) +
+  
+  # D. Titres et labels
+  labs(
+    title = "Visualisation des clusters",
+    subtitle = "IMC vs. Inclinometer.Sitting",
+    x = "IMC (kg/m²)",
+    y = "Indice de position assise"
+  ) +
+  
+  # E. Thème clair et épuré
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+ggsave(
+  filename = "clust_real.png",
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
+
+```{r}
+library(ggplot2)
+
+# On fusionne nos profils avec les données de sommeil (sleep)
+df_comparaison <- df_clustering |>
+  left_join(sleep |> select(Patient, Efficiency, Total.Sleep.Time..TST.), by = "Patient") |>
+  na.omit()
+
+# Création du Boxplot pour comparer l'Efficacité du sommeil
+ggplot(df_comparaison, aes(x = Profil, y = Efficiency, fill = Profil)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 3, color = "black", alpha = 0.6) + # Ajoute les points réels
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07")) +
+  labs(
+    title = "Efficacité du sommeil selon le Profil de Vie",
+    subtitle = "Profil 1 (Actifs en Surpoids) vs Profil 2 (Normo-pondéraux)",
+    x = "Profil K-Means",
+    y = "Efficacité du Sommeil (%)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+ggsave(
+  filename = "clust_efficacite.png",
+  dpi = 300,                                       
+  bg = "white"                                     
+)
 ```
