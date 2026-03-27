@@ -306,9 +306,24 @@ df <- merge(df, RR, by="Patient") |>
 ```
 
 ```{r}
-ggplot(data = df, aes(x = Total_Patient, y = Daily_stress)) +
-  geom_point() +
+ggplot(data = df, aes(x = Total.Sleep.Time..TST., y = Pittsburgh)) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 6, linetype = "dashed", color = "grey40", linewidth = 0.6) +
+  scale_x_continuous(
+    breaks = seq(60, 600, by = 60),
+    labels = function(x) paste0(x/60, "h")
+    ) +
+  labs(
+    title = "Corrélation entre temps de sommeil et qualité de sommeil",
+    x = "Temps de sommeil total",
+    y = "Pittsburgh Sleep Quality Index"
+  ) +
   theme_minimal()
+ggsave(
+  filename = "sommeil_psqi.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"                                     
+)
 ```
 
 Clustering Melatonin vs Pittsburgh
