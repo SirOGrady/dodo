@@ -170,48 +170,6 @@ ggsave(
 Chronogramme
 
 ```{r}
-activity_1 <- activity_plot |>
-  filter(Patient == "user_1") |>
-  filter(Day == 1)
-
-
-
-graphe_activites <- ggplot(activity_1) +
-  geom_segment(aes(x = Start_dt, xend = End_dt, 
-                   y = Activity_Label, yend = Activity_Label, 
-                   color = Activity_Label), 
-               linewidth = 8) +
-  theme_minimal(base_size = 14) +
-  theme(
-    legend.position = "none", 
-    panel.grid.minor.x = element_blank(),
-    panel.grid.major.y = element_blank(),
-    plot.title = element_text(face = "bold")
-  ) +
-  labs(
-    title = "Chronogramme des activités",
-    subtitle = "User 1 - Jour 1",
-    x = "Heure de la journée",
-    y = "Activité"
-  ) +
-  # Cette fois l'échelle fonctionnera car les données sont en POSIct
-
-  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hours")
-
-
-
-print(graphe_activites)
-
-
-
-ggsave(
-  filename = "chronogramme.png", # Nom du fichier
-  dpi = 300,                                       
-  bg = "white"   
-)
-```
-
-```{r}
 dict_activity <- c(
   "0" = "sleeping",
   "1" = "laying down",
@@ -293,14 +251,49 @@ ggplot(activity_summary, aes(
 ```
 
 ```{r}
-plot <- hist(questionnaire$Pittsburgh, breaks = length(questionnaire$Pittsburgh))
+activity_1 <- activity_plot |>
+  filter(Patient == "user_1") |>
+  filter(Day == 1)
+
+
+
+graphe_activites <- ggplot(activity_1) +
+  geom_segment(aes(x = Start_dt, xend = End_dt, 
+                   y = Activity_Label, yend = Activity_Label, 
+                   color = Activity_Label), 
+               linewidth = 8) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none", 
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold")
+  ) +
+  labs(
+    title = "Chronogramme des activités",
+    subtitle = "User 1 - Jour 1",
+    x = "Heure de la journée",
+    y = "Activité"
+  ) +
+  # Cette fois l'échelle fonctionnera car les données sont en POSIct
+
+  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hours")
+
+
+
+print(graphe_activites)
+
+
 
 ggsave(
-  filename = "pittsburgh.png", # Nom du fichier
-  plot = plot,
+  filename = "chronogramme.png", # Nom du fichier
   dpi = 300,                                       
-  bg = "white"                                     
+  bg = "white"   
 )
+```
+
+```{r}
+plot <- hist(questionnaire$Pittsburgh, breaks = length(questionnaire$Pittsburgh))
 ```
 
 ```{r}
@@ -513,4 +506,44 @@ ggsave(
   dpi = 300,                                       
   bg = "white"                                     
 )
+```
+
+```{r}
+df_rr_all <- data.frame()
+
+for (i in 1:22) {
+  temp_rr <- read_csv(file.path(root_dir, users[i], "RR.csv"), show_col_types = FALSE)
+  temp_rr <- process_rr_data_continu(temp_rr, users[i])
+  df_rr_all <- rbind(df_rr_all, temp_rr)
+}
+```
+
+```{r}
+# ====================================================================
+# EXPORTATION DES DONNÉES POUR LE DASHBOARD (À RUN UNE SEULE FOIS)
+# ====================================================================
+
+# 1. Données déjà existantes
+df_patient_info <- df |>
+  mutate(IMC = Weight / (Height / 100)^2) |>
+  select(Patient, IMC, Total.Sleep.Time..TST., Efficiency, Pittsburgh, Good_Sleep)
+saveRDS(df_patient_info, "dashboard_patient_info.rds")
+saveRDS(df_resultats_loo, "dashboard_predictions_rf.rds")
+saveRDS(df_clustering, "dashboard_data_profils.rds")
+saveRDS(modele_simulateur, "dashboard_modele_simu.rds") # Votre modèle glm()
+saveRDS(df_rr_all, "dashboard_cardio.rds")
+
+# 2. NOUVEAU : Données pour l'exploration globale
+saveRDS(user_info, "dashboard_user_info.rds")
+saveRDS(sleep, "dashboard_sleep.rds")
+saveRDS(activity_summary, "dashboard_activity_summary.rds")
+
+# 3. NOUVEAU : Données temporelles pour l'exploration individuelle
+# On sauvegarde le dataframe d'activité propre pour le chronogramme
+saveRDS(activity_plot, "dashboard_activity_plot.rds")
+
+# (Optionnel : si vous avez calculé df_user_continu pour TOUS les patients, sauvegardez-le ici)
+# saveRDS(df_tous_les_patients_continu, "dashboard_rr_continu.rds")
+
+print("✅ Fichiers exportés ! Le Dashboard est prêt.")
 ```

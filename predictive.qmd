@@ -458,3 +458,33 @@ saveRDS(df_clustering, "dashboard_data_profils.rds")
 # Sauvegarder votre modèle de Machine Learning déjà entraîné !
 saveRDS(modele_pcr, "dashboard_modele_sommeil.rds")
 ```
+
+```{r}
+# ====================================================================
+# 1. PRÉPARATION DES DONNÉES POUR LE DASHBOARD
+# ====================================================================
+
+# A. Infos globales par patient pour les ValueBoxes (Onglet 1)
+df_patient_info <- df |>
+  mutate(IMC = Weight / (Height / 100)^2) |>
+  select(Patient, IMC, Total.Sleep.Time..TST., Efficiency, Pittsburgh, Good_Sleep)
+saveRDS(df_patient_info, "dashboard_patient_info.rds")
+
+# B. Prédictions du Random Forest en LOO (Onglet 1)
+saveRDS(df_resultats_loo, "dashboard_predictions_rf.rds")
+
+# C. Données du Clustering (Onglet 2)
+saveRDS(df_clustering, "dashboard_data_profils.rds")
+
+# D. Création d'un modèle "Spécial Simulateur" (Onglet 3)
+# On recrée un modèle logistique direct sur 3 variables très parlantes
+df_simu <- df |> mutate(IMC = Weight / (Height / 100)^2)
+modele_simulateur <- glm(
+  Good_Sleep ~ Mean_RR + IMC + Efficiency, 
+  family = binomial(),
+  data = df_simu
+)
+saveRDS(modele_simulateur, "dashboard_modele_simu.rds")
+
+print("✅ Fichiers exportés avec succès ! Vous pouvez lancer le dashboard.")
+```
