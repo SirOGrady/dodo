@@ -12,8 +12,8 @@ Ce projet analyse le dataset MMASH (Multilevel Monitoring of Activity and Sleep 
 - Chronogrammes d'activités : Visualisation des cycles de 48h (sommeil, travail, sport, écrans).
 - Rythme Circadien : Évolution de la fréquence cardiaque (via les données RR) pour identifier les phases de récupération.
 
-<img width="2187" height="1350" alt="Cycles_sommeil" src="https://github.com/user-attachments/assets/49bcdfa8-2143-4bbe-9452-dcfeef0038fd" />
-<img width="2187" height="1350" alt="chronogramme" src="https://github.com/user-attachments/assets/b8d0cea7-3dbf-4994-b0e5-c44afd184aa4" />
+<img width="364" height="225" alt="Cycles_sommeil" src="https://github.com/user-attachments/assets/49bcdfa8-2143-4bbe-9452-dcfeef0038fd" />
+<img width="364" height="225" alt="chronogramme" src="https://github.com/user-attachments/assets/b8d0cea7-3dbf-4994-b0e5-c44afd184aa4" />
 
 2. Approche Non-Supervisée (predictive.qmd)
 
@@ -23,7 +23,7 @@ Nous avons identifié deux profils types via un algorithme de clustering :
 
 PCA (ACP) : Analyse des composantes principales pour isoler les facteurs influençant un score de Pittsburgh < 6 (seuil d'une bonne qualité de sommeil).
 
-<img width="2187" height="1350" alt="BMI_h_w" src="https://github.com/user-attachments/assets/a42a5061-c203-4d0c-ab64-c1876a45f7d9" />
+<img width="364" height="225" alt="BMI_h_w" src="https://github.com/user-attachments/assets/a42a5061-c203-4d0c-ab64-c1876a45f7d9" />
 
 3. Apprentissage Supervisé (predictive.qmd)
 
