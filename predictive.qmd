@@ -134,7 +134,7 @@ df_acp <- df |>
          , -panas_pos_10, -panas_pos_14, -panas_pos_18, -panas_pos_22, -panas_pos_9.1, -panas_pos_10, -panas_neg_14, -panas_neg_18, -panas_neg_22, -panas_neg_9.1, -panas_neg_10,
          -Total.Sleep.Time..TST., -Total.Minutes.in.Bed, 
          -Out.Bed.Time, -In.Bed.Time, -Onset.Time, -Fragmentation.Index,
-    -Average.Awakening.Length, -Efficiency, -Number.of.Awakenings,
+    -Average.Awakening.Length, -Efficiency, -Number.of.Awakenings, -Movement.Index,
     -Sleep.Fragmentation.Index, -Latency, -Wake.After.Sleep.Onset..WASO.
          ) |>
   mutate(IMC = Weight / (Height / 100)^2) |>
@@ -165,6 +165,46 @@ summary(modele_pcr)
 ```{r}
 description_dim1 <- dimdesc(res.acp, axes = 3, proba = 0.02)
 description_dim1$Dim.3$quanti
+```
+
+```{r}
+# Installez le package si vous ne l'avez pas encore fait :
+# install.packages("pROC")
+library(pROC)
+library(ggplot2)
+
+# 1. Obtenir les probabilités prédites par votre modèle
+# L'argument type = "response" est crucial : il renvoie un pourcentage (entre 0 et 1)
+probabilites <- predict(modele_pcr, type = "response")
+
+# 2. Créer l'objet ROC en comparant la réalité et les prédictions
+courbe_roc <- roc(
+  response = donnees_regression$Good_Sleep, 
+  predictor = probabilites
+)
+
+# 3. Extraire la valeur exacte de l'AUC
+valeur_auc <- auc(courbe_roc)
+print(paste("L'AUC du modèle est de :", round(valeur_auc, 3)))
+
+# 4. Tracer la courbe de manière élégante
+ggroc(courbe_roc, color = "#00AFBB", linewidth = 1.2) +
+  # Ajout de la ligne du "hasard" (diagonale)
+  geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1), color = "#FC4E07", linetype = "dashed") +
+  labs(
+    title = "Performance du modèle : courbe ROC",
+    subtitle = paste("AUC =", round(valeur_auc, 3)),
+    x = "Spécificité",
+    y = "Sensibilité"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+ggsave(
+  "PCA_roc.png",
+  dpi=300
+)
 ```
 
 L'ACP a mis en évidence une dimension principale (Dim.1) caractérisant un sommeil fragmenté et inefficace (forte latence, WASO élevé, faible efficacité). La régression logistique confirme que plus le profil d'un patient s'aligne avec cette dimension de sommeil perturbé, plus sa probabilité d'être classé en 'Bon Sommeil' s'effondre de manière très significative (p \< 0.01).
@@ -245,8 +285,8 @@ ggplot(df_resultats_loo, aes(x = Realite, y = Predictions)) +
   scale_y_continuous(breaks = seq(0, 1000, by = 60),
                      labels = function(x) paste0(x / 60, "h")) +
   labs(
-    title = "Prédiction du Temps de Sommeil (Validation Leave-One-Out)",
-    subtitle = paste("Modèle Random Forest (erreur moyenne absolue :", round(mae_loo, 2), "minutes)"),
+    title = "Prédiction du temps de sommeil (cross-validation LOO)",
+    subtitle = paste("Random Forest (erreur moyenne absolue :", round(mae_loo, 2), "minutes)"),
     x = "Temps de sommeil réel",
     y = "Temps de sommeil prédit"
   ) +
@@ -396,10 +436,10 @@ ggplot(df_comparaison, aes(x = Profil, y = Efficiency, fill = Profil)) +
   geom_jitter(width = 0.15, size = 3, color = "black", alpha = 0.6) + # Ajoute les points réels
   scale_fill_manual(values = c("#00AFBB", "#FC4E07")) +
   labs(
-    title = "Efficacité du sommeil selon le Profil de Vie",
-    subtitle = "Profil 1 (Actifs en Surpoids) vs Profil 2 (Normo-pondéraux)",
-    x = "Profil K-Means",
-    y = "Efficacité du Sommeil (%)"
+    title = "Efficacité du sommeil selon le profil de vie",
+    subtitle = "Profil 1 (actifs en surpoids) vs profil 2 (normo-pondéraux)",
+    x = "Profil en sortie de l'algo kmeans",
+    y = "Efficacité du sommeil (%)"
   ) +
   theme_minimal(base_size = 14) +
   theme(legend.position = "none", plot.title = element_text(face = "bold"))
@@ -409,4 +449,12 @@ ggsave(
   dpi = 300,                                       
   bg = "white"                                     
 )
+```
+
+```{r}
+# Sauvegarder les données nettoyées finales prêtes pour l'affichage
+saveRDS(df_clustering, "dashboard_data_profils.rds")
+
+# Sauvegarder votre modèle de Machine Learning déjà entraîné !
+saveRDS(modele_pcr, "dashboard_modele_sommeil.rds")
 ```
