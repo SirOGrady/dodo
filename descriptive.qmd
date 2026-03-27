@@ -112,6 +112,7 @@ hist(user_info$Weight, breaks=length(users))
 hist(user_info$Height, breaks=length(users))
 ggplot(user_info, aes(x = Height, y = Weight)) +
   geom_point(aes(colour = BMI), size = 4) +
+  scale_colour_viridis_c(option = "plasma") +
   theme_minimal(base_size = 18)
 ggsave(
   filename = "BMI_h_w.png", # Nom du fichier
@@ -166,6 +167,50 @@ ggsave(
 )
 ```
 
+Chronogramme
+
+```{r}
+activity_1 <- activity_plot |>
+  filter(Patient == "user_1") |>
+  filter(Day == 1)
+
+
+
+graphe_activites <- ggplot(activity_1) +
+  geom_segment(aes(x = Start_dt, xend = End_dt, 
+                   y = Activity_Label, yend = Activity_Label, 
+                   color = Activity_Label), 
+               linewidth = 8) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none", 
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold")
+  ) +
+  labs(
+    title = "Chronogramme des activités",
+    subtitle = "User 1 - Jour 1",
+    x = "Heure de la journée",
+    y = "Activité"
+  ) +
+  # Cette fois l'échelle fonctionnera car les données sont en POSIct
+
+  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hours")
+
+
+
+print(graphe_activites)
+
+
+
+ggsave(
+  filename = "chronogramme.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"   
+)
+```
+
 ```{r}
 dict_activity <- c(
   "0" = "sleeping",
@@ -182,6 +227,23 @@ dict_activity <- c(
   "11" = "alcohol assumption",
   "12" = "saliva samples"
 )
+
+# preprocessing
+activity_plot <- activity |>
+  # On garde le label
+  mutate(Activity_Label = factor(Activity, levels = names(dict_activity), labels = dict_activity)) |>
+  # CRUCIAL : On crée un objet POSIXct complet pour ggplot
+  # On utilise une date fictive pour que scale_x_datetime fonctionne
+  mutate(
+    Start_dt = as.POSIXct(paste("2024-01-01", Start), format="%Y-%m-%d %H:%M"),
+    End_dt   = as.POSIXct(paste("2024-01-01", End), format="%Y-%m-%d %H:%M")
+  ) |>
+  # Gestion du passage à minuit : si l'heure de fin est avant l'heure de début, 
+  # c'est que l'activité finit le lendemain (ex: sommeil)
+  mutate(End_dt = if_else(End_dt < Start_dt, End_dt + days(1), End_dt))
+
+
+
 
 activity <- activity |>
   select(-X) |>
@@ -274,7 +336,7 @@ Tracer la différence entre "before sleep" et "wake up" ?
 ggplot(RR, aes(x = Patient, y = RMSSD, fill = Patient)) +
   geom_col(alpha = 0.8, width = 0.5) +
   labs(
-    title = "Variabilité de la Fréquence Cardiaque (HRV) par patient",
+    title = "Variabilité de la fréquence cardiaque (HRV) par patient",
     subtitle = "Indicateur RMSSD (plus la valeur est haute meilleure est la récupération nerveuse)",
     x = "Patient",
     y = "RMSSD (secondes)"
@@ -328,56 +390,7 @@ summary(fit_glm)
 gglm(fit_glm)
 ```
 
-```{r}
-df <- df |>
-  select(-SAMPLES)
-corr_matrix <- cor(df, method = "pearson", use = "complete.obs")
-p_mat <- cor_pmat(df)
-ggcorrplot(corr_matrix, 
-           method = "square", 
-           type = "lower",
-           lab = TRUE,
-           lab_size = 2,
-           tl.cex = 5,
-           tl.srt = 45,
-           p.mat = p_mat,
-           sig.level = 0.05,
-           insig = "blank",
-           colors = c("#E46726", "white", "#6D9EC1"),
-           title = "Corrélations: Sommeil, Hormones et Stress (MMASH)")
-```
-
 Détection d'activité avec rythme cardiaque et actigraphe :
-
-Graphe activité journée user_1
-
-```{r}
-activity_1 <- activity |>
-  filter(Patient == "user_2") |>
-  filter(Day == 2)
-
-graphe_activites <- ggplot(activity_1) +
-  geom_segment(aes(x = Start_hm, xend = End_hm, 
-                   y = Activity_Label, yend = Activity_Label, 
-                   color = Activity_Label), 
-               linewidth = 8) +
-    theme_minimal(base_size = 14) +
-  theme(
-    legend.position = "none", 
-    panel.grid.minor.x = element_blank(),
-    panel.grid.major.y = element_blank(),
-    plot.title = element_text(face = "bold", hjust = 0.5)
-  ) +
-  labs(
-    title = "Chronogramme des activités du Patient 1 (Jour 1)",
-    subtitle = "Dataset MMASH",
-    x = "Heure de la journée",
-    y = "Type d'activité"
-  ) +
-  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hours")
-
-print(graphe_activites)
-```
 
 ```{r}
 # Chargement des bibliothèques
@@ -388,7 +401,7 @@ library(scales) # Pour le formatage de l'axe des temps
 
 # 1. Définir le chemin vers le fichier du patient 1
 # Modifiez ce chemin selon l'emplacement de vos données MMASH extraites
-chemin_fichier <- "chemin/vers/MMASH/DataPaper/user_1/Actigraph.csv"
+chemin_fichier <- "DataPaper/user_1/Actigraph.csv"
 
 # Charger les données
 df_actigraph <- read_csv(chemin_fichier, show_col_types = FALSE)
@@ -416,8 +429,8 @@ actigramme <- ggplot(df_jour_1, aes(x = time, y = `Vector Magnitude`)) +
   
   # Titres et labels
   labs(
-    title = "Actigramme du Patient 1 (Jour 1)",
-    subtitle = "Dataset MMASH",
+    title = "Actigramme",
+    subtitle = "User 1 - jour 1)",
     x = "Heure de la journée",
     y = "Activité (Vector Magnitude)"
   ) +
@@ -427,6 +440,62 @@ actigramme <- ggplot(df_jour_1, aes(x = time, y = `Vector Magnitude`)) +
 
 # Afficher le graphique
 print(actigramme)
+
 ```
 
-Random Forest Stress vs Rest with HRV
+Affichage de la fréquence cardiaque
+
+```{r}
+# 1. Créer une fonction pour nettoyer le temps
+# On arrondit à l'heure la plus proche pour pouvoir grouper
+process_rr_data_continu <- function(df, id) {
+  df %>%
+    mutate(
+      HR = 60 / ibi_s,
+      time_hms = hms(time),
+      user_id = id,
+      # Calcul du temps continu : si jour 2, on ajoute 24 heures
+      heure_base = hour(time_hms),
+      minute = minute(time_hms),
+      temps_continu = ifelse(day == 2, heure_base + 24, heure_base) + (minute / 60)
+    ) %>%
+    filter(HR > 30 & HR < 200) %>% 
+    group_by(user_id, day, temps_continu) %>%
+    summarise(mean_hr = mean(HR, na.rm = TRUE), .groups = 'drop')
+}
+
+# Extraction pour le user 2 (en utilisant vos objets déjà chargés)
+# Note : Assurez-vous que 'actigraph' contient les données du user_2
+
+chemin_fichier <- "DataPaper/user_3/RR.csv"
+df_rr <- read_csv(chemin_fichier, show_col_types = FALSE)
+
+# Traitement
+df_user_continu <- process_rr_data_continu(df_rr, "user_3")
+
+# Graphique
+ggplot(df_user_continu, aes(x = temps_continu, y = mean_hr, color = as.factor(day))) +
+  geom_line(alpha = 0.6) +
+  # Ligne verticale pour marquer la séparation entre les deux jours (Minuit)
+  geom_vline(xintercept = 24, linetype = "dashed", color = "grey40", linewidth = 0.8) +
+  # Configuration de l'échelle X de 0 à 48h
+  scale_x_continuous(
+    breaks = seq(0, 48, by = 4), 
+    labels = function(x) paste0(x%%24, "h")
+  ) +
+  scale_color_manual(values = c("1" = "#3498db", "2" = "#e67e22")) +
+  labs(
+    title = "Graphique de la fréquence cardiaque",
+    subtitle = "Sujet : User 03",
+    x = "Temps (heures)",
+    y = "BPM moyen",
+    color = "Jour"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "freq_cardiaque.png", # Nom du fichier
+  dpi = 300,                                       
+  bg = "white"                                     
+)
+```
